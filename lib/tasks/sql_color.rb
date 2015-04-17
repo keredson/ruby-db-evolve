@@ -15,7 +15,7 @@ class SQLColor
     if sql.strip.start_with?('--')
       return apply(CYAN, sql)
     end
-    sql = sql.gsub(/(ALTER|TABLE|COLUMN|ADD|TYPE|BEGIN|TRANSACTION|COMMIT)/){|s|apply(GREEN, s)}
+    sql = sql.gsub(/(CREATE|ALTER|TABLE|COLUMN|ADD|TYPE|BEGIN|TRANSACTION|COMMIT| ON |INDEX)/){|s|apply(GREEN, s)}
     sql = sql.gsub(/(DROP)/){|s|apply(RED, s)}
     sql = sql.gsub(/("[^"]*")/){|s|apply(WHITE, s, bold=true)}
     return sql

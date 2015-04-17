@@ -32,7 +32,7 @@ end
 
 
 def do_evolve()
-  existing_tables = load_existing_tables()
+  existing_tables, existing_indexes = load_existing_tables()
 
   require_relative 'db_mock'
 
@@ -46,14 +46,22 @@ def do_evolve()
   to_run += sql_adds(adds)
   to_run += sql_renames(renames)
 
+  rename_cols_by_table = {}
+
   existing_tables.each do |etn, ecols|
     next if deletes.include? etn
     ntn = renames[etn] || etn
-    to_run += calc_column_changes(ntn, existing_tables[etn], $schema_tables[ntn].columns)
+    commands, rename_cols = calc_column_changes(ntn, existing_tables[etn], $schema_tables[ntn].columns)
+    to_run += commands
+    rename_cols_by_table[ntn] = rename_cols
   end
+  
+  to_run += calc_index_changes(existing_indexes, $schema_indexes, renames, rename_cols_by_table)
 
   to_run += sql_drops(deletes)
 
+  # prompt and execute
+  
   if to_run.empty?
     puts "\nYour database is up to date!"
     puts
@@ -81,7 +89,7 @@ def do_evolve()
       config[:dbname] = config.delete(:database)
       config[:user] = config.delete(:username)
       print "\nExecuting in "
-      [5,4,3,2,1].each do |c|
+      [3,2,1].each do |c|
         print "#{c}..."
         sleep(1)
       end
@@ -102,6 +110,38 @@ def do_evolve()
 end
 
 
+def calc_index_changes(existing_indexes, schema_indexes, table_renames, rename_cols_by_table)
+  # rename_cols_by_table is by the new table name
+  existing_indexes = Set.new existing_indexes
+  schema_indexes = Set.new schema_indexes
+  
+  add_indexes = schema_indexes - existing_indexes
+  delete_indexes = existing_indexes - schema_indexes
+
+  $tmp_to_run = []  
+
+  connection = ActiveRecord::Base.connection
+
+  add_indexes.each do |index|
+    table = index.delete(:table)
+    columns = index.delete(:columns)
+    connection.add_index table, columns, index
+  end
+  
+  delete_indexes.each do |index|
+    table = index.delete(:table)
+    name = index[:name]
+    connection.remove_index table, :name => name
+  end
+
+  to_run = $tmp_to_run
+
+  if !to_run.empty?
+    to_run.unshift("\n-- update indexes")
+  end
+  
+  return to_run
+end
 
 
 
@@ -109,13 +149,18 @@ IgnoreTables = Set.new ["schema_migrations"]
 
 def load_existing_tables()
   existing_tables = {}
+  existing_indexes = []
   connection = ActiveRecord::Base.connection
   connection.tables.sort.each do |tbl|
     next if IgnoreTables.include? tbl
     columns = connection.columns(tbl)
     existing_tables[tbl] = columns
+    connection.indexes(tbl).each do |i|
+      index = {:table => i.table, :name => i.name, :columns => i.columns, :unique => i.unique}
+      existing_indexes.append(index)
+    end
   end
-  return existing_tables
+  return existing_tables, existing_indexes
 end
 
 
@@ -189,8 +234,15 @@ def create_table(name, opts={})
   end
 end
 
-def add_index(name, columns, opts)
-#  puts 'add_index'
+$schema_indexes = []
+
+def add_index(table, columns, opts)
+  opts[:table] = table
+  opts[:columns] = columns
+  if !opts.has_key? :unique
+    opts[:unique] = false
+  end
+  $schema_indexes.append(opts)
 end
 
 module DB
@@ -350,7 +402,7 @@ def calc_column_changes(tbl, existing_cols, schema_cols)
     to_run.unshift("\n-- column changes for table #{tbl}")
   end
   
-  return to_run
+  return to_run, rename_cols
 end
 
 
