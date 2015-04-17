@@ -157,9 +157,11 @@ def add_index(name, columns, opts)
 end
 
 module DB
-  class Schema
-    def self.define()
-      yield
+  module Evolve
+    class Schema
+      def self.define()
+        yield
+      end
     end
   end
 end
@@ -313,9 +315,6 @@ def calc_column_changes(tbl, existing_cols, schema_cols)
   
   return to_run
 end
-
-
-
 
 
 
