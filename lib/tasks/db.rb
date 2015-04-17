@@ -54,13 +54,47 @@ def do_evolve()
 
   to_run += sql_drops(deletes)
 
-  if !to_run.empty?
+  if to_run.empty?
+    puts "\nYour database is up to date!"
+    puts
+  else
     to_run.unshift("\nBEGIN TRANSACTION;")
     to_run.append("\nCOMMIT;")
+
+    puts to_run.join("\n")
+    puts
+
+    config = ActiveRecord::Base.connection_config
+    puts "Connecting to database:"
+    config.each do |k,v|
+      next if k==:password
+      puts "\t#{k} => #{v}"
+    end
+    print "Run this SQL? (type yes or no) "
+    if STDIN.gets.strip=='yes'
+      require 'pg'
+      config = ActiveRecord::Base.connection_config
+      config.delete(:adapter)
+      config[:dbname] = config.delete(:database)
+      config[:user] = config.delete(:username)
+      print "\nExecuting in "
+      [5,4,3,2,1].each do |c|
+        print "#{c}..."
+        sleep(1)
+      end
+      puts
+      conn = PG::Connection.open(config)
+      to_run.each do |sql|
+        puts sql
+        conn.exec(sql)
+      end
+      puts "\n--==[ COMPLETED ]==--"
+    else
+      puts "\n--==[ ABORTED ]==--"
+    end
+    puts
   end
 
-  puts to_run.join("\n")
-  puts
 
 end
 
