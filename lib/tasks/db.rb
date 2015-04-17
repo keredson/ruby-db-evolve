@@ -58,10 +58,13 @@ def do_evolve()
     puts "\nYour database is up to date!"
     puts
   else
-    to_run.unshift("\nBEGIN TRANSACTION;")
-    to_run.append("\nCOMMIT;")
+    to_run.unshift("\nBEGIN TRANSACTION")
+    to_run.append("\nCOMMIT")
 
-    puts to_run.join("\n")
+    require_relative 'sql_color'
+    to_run.each do |sql|
+      puts SQLColor.colorize(sql)
+    end
     puts
 
     config = ActiveRecord::Base.connection_config
@@ -85,7 +88,7 @@ def do_evolve()
       puts
       conn = PG::Connection.open(config)
       to_run.each do |sql|
-        puts sql
+        puts SQLColor.colorize(sql)
         conn.exec(sql)
       end
       puts "\n--==[ COMPLETED ]==--"
@@ -229,7 +232,7 @@ end
 def sql_renames(renames)
   to_run = []
   renames.each do |k,v|
-    sql = "ALTER TABLE #{escape_table(k)} RENAME TO #{escape_table(v)};"
+    sql = "ALTER TABLE #{escape_table(k)} RENAME TO #{escape_table(v)}"
     to_run.append sql
   end
   if !to_run.empty?
@@ -241,7 +244,7 @@ end
 def sql_drops(tables)
   to_run = []
   tables.each do |tbl|
-    sql = "DROP TABLE #{escape_table(tbl)};"
+    sql = "DROP TABLE #{escape_table(tbl)}"
     to_run.append sql
   end
   if !to_run.empty?
@@ -323,7 +326,7 @@ def calc_column_changes(tbl, existing_cols, schema_cols)
   end
   
   rename_cols.each do |ecn, scn|
-    to_run.append("ALTER TABLE #{escape_table(tbl)} RENAME COLUMN #{escape_table(ecn)} TO #{escape_table(scn)};")
+    to_run.append("ALTER TABLE #{escape_table(tbl)} RENAME COLUMN #{escape_table(ecn)} TO #{escape_table(scn)}")
   end
   delete_cols.each do |cn|
     to_run.append("ALTER TABLE #{escape_table(tbl)} DROP COLUMN #{escape_table(cn)}")
