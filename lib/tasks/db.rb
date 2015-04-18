@@ -337,6 +337,12 @@ def can_convert(type1, type2)
   return false
 end
 
+# taken from comments in ActiveRecord::ConnectionAdapters::TableDefinition
+NATIVE_DATABASE_PRECISION = {
+  :numeric => 19,
+  :decimal => 38,
+}
+
 def calc_column_changes(tbl, existing_cols, schema_cols)
 
   existing_cols_by_name = Hash[existing_cols.collect { |c| [c.name, c] }]
@@ -395,7 +401,9 @@ def calc_column_changes(tbl, existing_cols, schema_cols)
     type_changed = sc.type.to_s != ec.type.to_s
     sc_limit = sc.opts.has_key?(:limit) ? sc.opts[:limit] : ActiveRecord::ConnectionAdapters::PostgreSQLAdapter::NATIVE_DATABASE_TYPES[sc.type.to_sym][:limit]
     limit_changed = (sc.type=="string" and sc_limit!=ec.limit) # numeric types in postgres report the precision as the limit - ignore non string types for now
-    if type_changed or limit_changed #or sc.opts[:precision]!=ec.precision
+    sc_precision = sc.opts.has_key?(:precision) ? sc.opts[:precision] : NATIVE_DATABASE_PRECISION[sc.type]
+    precision_changed = (sc.type=="decimal" and sc_precision!=ec.precision) # by type_to_sql in schema_statements.rb, precision is only used on decimal types
+    if type_changed or limit_changed or precision_changed
       pg_a.change_column(tbl, sc.name, sc.type, sc.opts)
     end
     if ec.default != sc.opts[:default]
