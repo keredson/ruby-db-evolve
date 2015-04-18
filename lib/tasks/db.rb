@@ -280,11 +280,19 @@ def escape_table(k)
   return PG::Connection.quote_ident k
 end
 
+def gen_pg_adapter()
+  $tmp_to_run = []
+  a = ActiveRecord::ConnectionAdapters::PostgreSQLAdapter.allocate
+  ActiveRecord::ConnectionAdapters::AbstractAdapter.instance_method(:initialize).bind(a).call ActiveRecord::Base.connection
+  return a
+end
+
 def sql_renames(renames)
   to_run = []
+  pg_a = gen_pg_adapter()
   renames.each do |k,v|
-    sql = "ALTER TABLE #{escape_table(k)} RENAME TO #{escape_table(v)}"
-    to_run.append sql
+    pg_a.rename_table(k, v)
+    to_run += $tmp_to_run
   end
   if !to_run.empty?
     to_run.unshift("\n-- rename tables")
@@ -302,13 +310,6 @@ def sql_drops(tables)
     to_run.unshift("\n-- remove tables")
   end
   return to_run
-end
-
-def gen_pg_adapter()
-  $tmp_to_run = []
-  a = ActiveRecord::ConnectionAdapters::PostgreSQLAdapter.allocate
-  ActiveRecord::ConnectionAdapters::AbstractAdapter.instance_method(:initialize).bind(a).call ActiveRecord::Base.connection
-  return a
 end
 
 def sql_adds(tables)
@@ -384,9 +385,11 @@ def calc_column_changes(tbl, existing_cols, schema_cols)
     to_run += $tmp_to_run
   end
   
+  $tmp_to_run = []
   rename_cols.each do |ecn, scn|
-    to_run.append("ALTER TABLE #{escape_table(tbl)} RENAME COLUMN #{escape_table(ecn)} TO #{escape_table(scn)}")
+    pg_a.rename_column(tbl, ecn, scn)
   end
+  to_run += $tmp_to_run
   delete_cols.each do |cn|
     to_run.append("ALTER TABLE #{escape_table(tbl)} DROP COLUMN #{escape_table(cn)}")
   end
