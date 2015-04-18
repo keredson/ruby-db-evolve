@@ -38,7 +38,21 @@ $ sudo gem install db-evolve-x.x.x.gem
 Quick Start
 ---------------------
 
-In your `schema.rb` change this:
+Let's say your `schema.rb` looks like this:
+
+<pre>
+ActiveRecord::Schema.define(:version => 20150402195918) do
+  create_table "comments" do |t|
+    t.integer  "post_id",       :null => false
+    t.integer  "author_id"
+    t.datetime "created_at",    :null => false
+    t.datetime "updated_at",    :null => false
+    t.text     "text"
+  end
+end
+</pre>
+
+To enable schema evolution change this:
 
 <pre>
 ActiveRecord::Schema.define(:version => 20150402195918) do
@@ -98,7 +112,7 @@ ALTER TABLE "user_comments" RENAME COLUMN "text" TO "body";
 COMMIT;
 </pre>
 
-You get the idea.  Stop writing your own diffs to apply to your schema.  Just write your schema, and use a f#*king `diff` tool!
+You get the idea.  Stop writing your own diffs to apply to your schema.  Just write your schema!
 
 
 Status
