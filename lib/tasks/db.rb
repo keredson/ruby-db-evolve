@@ -38,7 +38,6 @@ def do_evolve()
 
   require Rails.root + 'db/schema'
 
-
   adds, deletes, renames = calc_table_changes(existing_tables.keys, $schema_tables.keys, $akas_tables)
 
   to_run = []
@@ -219,7 +218,7 @@ def create_table(name, opts={})
     c = Column.new
     c.type = "integer"
     c.name = "id"
-    c.opts = {}
+    c.opts = { :null=>false }
     tbl.columns.append c
   end
   yield tbl
@@ -278,7 +277,7 @@ def calc_table_changes(existing_tables, schema_tables, akas_tables)
 end
 
 def escape_table(k)
-  return "\"#{k}\""
+  return PG::Connection.quote_ident k
 end
 
 def sql_renames(renames)
@@ -347,7 +346,7 @@ def calc_column_changes(tbl, existing_cols, schema_cols)
   new_cols = schema_col_names - existing_col_names
   delete_cols = existing_col_names - schema_col_names
   rename_cols = {}
-  
+
   new_cols.each do |cn|
     sc = schema_cols_by_name[cn]
     if sc.akas
@@ -386,16 +385,29 @@ def calc_column_changes(tbl, existing_cols, schema_cols)
   
   same_names = existing_col_names - delete_cols
   same_names.each do |ecn|
+    $tmp_to_run = []
     ec = existing_cols_by_name[ecn]
     if rename_cols.include? ecn
       sc = schema_cols_by_name[rename_cols[ecn]]
     else
       sc = schema_cols_by_name[ecn]
     end
-    if sc.type.to_s != ec.type.to_s
-      type = pg_a.type_to_sql(sc.type, sc.opts[:limit], sc.opts[:precision], sc.opts[:scale])
-      to_run.append("ALTER TABLE #{escape_table(tbl)} ALTER COLUMN #{escape_table(sc.name)} TYPE #{type}") # using the_column::bigint
+    if sc.type.to_s != ec.type.to_s #or sc.opts[:limit]!=ec.limit or sc.opts[:precision]!=ec.precision
+      pg_a.change_column(tbl, sc.name, sc.type, sc.opts)
     end
+    if ec.default != sc.opts[:default]
+      puts "sc.opts[:default] #{sc.opts[:default].to_s}"
+      pg_a.change_column_default(tbl, sc.name, sc.opts[:default])
+    end
+    sc_null = sc.opts.has_key?(:null) ? sc.opts[:null] : true
+    if ec.null != sc_null
+      if !sc_null and !sc.opts.has_key?(:default)
+        raise "\nERROR: In order to set #{tbl}.#{sc.name} as NOT NULL you need to add a :default value.\n\n"
+      end
+      pg_a.change_column_null(tbl, sc.name, sc_null, sc.opts[:default])
+    end
+    
+    to_run += $tmp_to_run
   end
 
   if !to_run.empty?

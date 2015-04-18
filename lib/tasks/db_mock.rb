@@ -1,3 +1,5 @@
+require 'pg'
+
 module ActiveRecord
   module ConnectionAdapters
     class PostgreSQLAdapter
@@ -8,6 +10,9 @@ module ActiveRecord
         false
       end
       def clear_cache!
+      end
+      def escape(s)
+        return PG::Connection.quote_ident s
       end
     end
   end
