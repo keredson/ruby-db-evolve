@@ -342,6 +342,8 @@ NATIVE_DATABASE_PRECISION = {
   :numeric => 19,
   :decimal => 19, #38,
 }
+NATIVE_DATABASE_SCALE = {
+}
 
 def calc_column_changes(tbl, existing_cols, schema_cols)
 
@@ -411,7 +413,9 @@ def calc_column_changes(tbl, existing_cols, schema_cols)
     limit_changed = (sc.type=="string" and sc_limit!=ec.limit) # numeric types in postgres report the precision as the limit - ignore non string types for now
     sc_precision = sc.opts.has_key?(:precision) ? sc.opts[:precision] : NATIVE_DATABASE_PRECISION[sc.type]
     precision_changed = (sc.type=="decimal" and sc_precision!=ec.precision) # by type_to_sql in schema_statements.rb, precision is only used on decimal types
-    if type_changed or limit_changed or precision_changed
+    sc_scale = sc.opts.has_key?(:scale) ? sc.opts[:scale] : NATIVE_DATABASE_SCALE[sc.type]
+    scale_changed = (sc.type=="decimal" and sc_scale!=ec.scale)
+    if type_changed or limit_changed or precision_changed or scale_changed
       pg_a.change_column(tbl, sc.name, sc.type.to_sym, sc.opts)
     end
     if ec.default != sc.opts[:default]
