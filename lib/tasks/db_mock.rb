@@ -11,6 +11,10 @@ module ActiveRecord
       end
       def clear_cache!
       end
+      def quote_string s
+        # hack to prevent double-quoting when setting default
+        return s
+      end
       def escape(s)
         return PG::Connection.quote_ident s
       end
