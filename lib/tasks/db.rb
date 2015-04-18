@@ -392,11 +392,13 @@ def calc_column_changes(tbl, existing_cols, schema_cols)
     else
       sc = schema_cols_by_name[ecn]
     end
-    if sc.type.to_s != ec.type.to_s #or sc.opts[:limit]!=ec.limit or sc.opts[:precision]!=ec.precision
+    type_changed = sc.type.to_s != ec.type.to_s
+    sc_limit = sc.opts.has_key?(:limit) ? sc.opts[:limit] : ActiveRecord::ConnectionAdapters::PostgreSQLAdapter::NATIVE_DATABASE_TYPES[sc.type.to_sym][:limit]
+    limit_changed = (sc.type=="string" and sc_limit!=ec.limit) # numeric types in postgres report the precision as the limit - ignore non string types for now
+    if type_changed or limit_changed #or sc.opts[:precision]!=ec.precision
       pg_a.change_column(tbl, sc.name, sc.type, sc.opts)
     end
     if ec.default != sc.opts[:default]
-      puts "sc.opts[:default] #{sc.opts[:default].to_s}"
       pg_a.change_column_default(tbl, sc.name, sc.opts[:default])
     end
     sc_null = sc.opts.has_key?(:null) ? sc.opts[:null] : true
@@ -406,7 +408,6 @@ def calc_column_changes(tbl, existing_cols, schema_cols)
       end
       pg_a.change_column_null(tbl, sc.name, sc_null, sc.opts[:default])
     end
-    
     to_run += $tmp_to_run
   end
 
