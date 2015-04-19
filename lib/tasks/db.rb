@@ -396,7 +396,7 @@ def calc_column_changes(tbl, existing_cols, schema_cols)
 #    puts "tbl: #{tbl} new_cols: #{new_cols}"
     new_cols.each do |cn|
       sc = schema_cols_by_name[cn]
-      pg_a.add_column(tbl, cn, sc.type, sc.opts)
+      pg_a.add_column(tbl, cn, sc.type.to_sym, sc.opts)
     end
     to_run += $tmp_to_run
   end

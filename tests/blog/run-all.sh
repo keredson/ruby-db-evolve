@@ -20,11 +20,11 @@ for i in $( ls schemas/*.rb -1v ); do
       echo $NOOP
       exit 1
     fi
+    set +e
     pg_dump db_evolve_test --schema-only --no-owner --no-acl | \
         grep -v "^--" | grep -v "^$" | grep -v "^SET " | \
         grep -v "^CREATE EXTENSION" | grep -v "^COMMENT ON EXTENSION" \
         > /tmp/db_evolve_test_schema.sql
-    set +e
     SQL_FILE="${i%.*}.sql"
     if [ ! -f "$SQL_FILE" ]; then
       echo "ERROR - Missing schema comparison: $SQL_FILE"
