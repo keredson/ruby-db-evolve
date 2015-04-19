@@ -18,20 +18,23 @@ end
 namespace :db do
 
   desc "Diff your database against your schema.rb and offer SQL to bring your database up to date."
-  task :evolve => :environment do
+  task :evolve, [:arg1] => :environment do |t, args|
+  
+    noop = args[:arg1] == "noop"
+    yes = args[:arg1] == "yes"
   
     # confirm our shim is in place before we load schema.rb
     # lest we accidentally drop and reload their database!
     ActiveRecord::Schema.iloaded 
 
-    do_evolve()
+    do_evolve(noop, yes)
 
   end
 
 end
 
 
-def do_evolve()
+def do_evolve(noop, yes)
   existing_tables, existing_indexes = load_existing_tables()
 
   require_relative 'db_mock'
@@ -62,8 +65,10 @@ def do_evolve()
   # prompt and execute
   
   if to_run.empty?
-    puts "\nYour database is up to date!"
-    puts
+    if !noop
+      puts "\nYour database is up to date!"
+      puts
+    end
   else
     to_run.unshift("\nBEGIN TRANSACTION")
     to_run.append("\nCOMMIT")
@@ -74,14 +79,21 @@ def do_evolve()
     end
     puts
 
+    if noop
+      return
+    end
+
     config = ActiveRecord::Base.connection_config
     puts "Connecting to database:"
     config.each do |k,v|
       next if k==:password
       puts "\t#{k} => #{v}"
     end
-    print "Run this SQL? (type yes or no) "
-    if STDIN.gets.strip=='yes'
+    
+    if !yes
+      print "Run this SQL? (type yes or no) "
+    end
+    if yes || STDIN.gets.strip=='yes'
       require 'pg'
       config = ActiveRecord::Base.connection_config
       config.delete(:adapter)
