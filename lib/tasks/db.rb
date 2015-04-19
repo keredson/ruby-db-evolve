@@ -18,23 +18,25 @@ end
 namespace :db do
 
   desc "Diff your database against your schema.rb and offer SQL to bring your database up to date."
-  task :evolve, [:arg1] => :environment do |t, args|
+  task :evolve, [:arg1,:arg2] => :environment do |t, args|
   
-    noop = args[:arg1] == "noop"
-    yes = args[:arg1] == "yes"
+    argv = [ args[:arg1], args[:arg2] ] 
+    noop = argv.include? "noop"
+    nowait = argv.include? "nowait"
+    yes = argv.include? "yes"
   
     # confirm our shim is in place before we load schema.rb
     # lest we accidentally drop and reload their database!
     ActiveRecord::Schema.iloaded 
 
-    do_evolve(noop, yes)
+    do_evolve(noop, yes, nowait)
 
   end
 
 end
 
 
-def do_evolve(noop, yes)
+def do_evolve(noop, yes, nowait)
   existing_tables, existing_indexes = load_existing_tables()
 
   require_relative 'db_mock'
@@ -99,10 +101,12 @@ def do_evolve(noop, yes)
       config.delete(:adapter)
       config[:dbname] = config.delete(:database)
       config[:user] = config.delete(:username)
-      print "\nExecuting in "
-      [3,2,1].each do |c|
-        print "#{c}..."
-        sleep(1)
+      if !nowait
+        print "\nExecuting in "
+        [3,2,1].each do |c|
+          print "#{c}..."
+          sleep(1)
+        end
       end
       puts
       conn = PG::Connection.open(config)

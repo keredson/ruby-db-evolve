@@ -13,7 +13,7 @@ for i in $( ls schemas/*.rb -1v ); do
     echo " Running: $i"
     echo "----------------------------------------------"
     cp $i db/schema.rb
-    rake db:evolve[yes]
+    rake db:evolve[yes,nowait]
     NOOP=$(rake db:evolve[noop])
     if [ -n "$NOOP" ]; then
       echo "Failed NOOP: $i"
@@ -25,7 +25,12 @@ for i in $( ls schemas/*.rb -1v ); do
         grep -v "^CREATE EXTENSION" | grep -v "^COMMENT ON EXTENSION" \
         > /tmp/db_evolve_test_schema.sql
     set +e
-    DIFF=$(diff /tmp/db_evolve_test_schema.sql ${i%.*}.sql)
+    SQL_FILE="${i%.*}.sql"
+    if [ ! -f "$SQL_FILE" ]; then
+      echo "ERROR - Missing schema comparison: $SQL_FILE"
+      exit 1
+    fi 
+    DIFF=$(diff /tmp/db_evolve_test_schema.sql "$SQL_FILE")
     set -e
     if [ -n "$DIFF" ]; then
       echo "Failed DIFF: $i"
@@ -34,6 +39,8 @@ for i in $( ls schemas/*.rb -1v ); do
     fi
 done
 
+echo "----------------------------------------------"
 echo "Passed all tests!"
+echo "----------------------------------------------"
 
 
