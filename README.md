@@ -117,7 +117,10 @@ You get the idea.  Stop writing your own diffs to apply to your schema.  Just wr
 
 Status
 --------
-Version 0.0.1.  Very experimental.  PostgreSQL only.  Use at your own risk!
+
+* PostgreSQL only ATM.
+* Feature complete (ADD/DROP/RENAME tables, columns and indexes, ALTER types, limits, nullable, precision, scale).
+* GRAS (Generally Recognized as Safe).  It prompts yes/no before running any SQL.  And switching back to migrations is just as easy as switching to DB::Evolve.
 
 
 FAQ
