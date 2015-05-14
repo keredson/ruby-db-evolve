@@ -33,7 +33,12 @@ namespace :db do
 
   end
 
-  # mock db:schema:load so rspec works
+  # mock db:schema:load db:test:load so "rake spec" works
+  namespace :test do
+    task :load do
+      # do nothing
+    end
+  end
   namespace :schema do
     task :load do
       do_evolve(false, true, true)
