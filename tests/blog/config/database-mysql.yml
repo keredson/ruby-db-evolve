@@ -1,0 +1,4 @@
+development:
+  adapter: mysql
+  username: root
+  database: db_evolve_test

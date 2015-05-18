@@ -2,6 +2,8 @@
 
 mkdir -p db
 
+cp config/database-postgresql.yml config/database.yml
+
 dropdb db_evolve_test
 
 set -e
@@ -25,7 +27,7 @@ for i in $( ls schemas/*.rb -1v ); do
         grep -v "^--" | grep -v "^$" | grep -v "^SET " | \
         grep -v "^CREATE EXTENSION" | grep -v "^COMMENT ON EXTENSION" \
         > /tmp/db_evolve_test_schema.sql
-    SQL_FILE="${i%.*}.sql"
+    SQL_FILE="${i%.*}.postgresql.sql"
     if [ ! -f "$SQL_FILE" ]; then
       echo "ERROR - Missing schema comparison: $SQL_FILE"
       exit 1

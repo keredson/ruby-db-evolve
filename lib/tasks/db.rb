@@ -84,8 +84,10 @@ def do_evolve(noop, yes, nowait)
       puts
     end
   else
-    to_run.unshift("\nBEGIN TRANSACTION")
-    to_run.append("\nCOMMIT")
+    if Rails.configuration.database_configuration[Rails.env]['adapter'] == 'postgresql'
+      to_run.unshift("\nBEGIN TRANSACTION")
+      to_run.append("\nCOMMIT")
+    end
 
     require_relative 'sql_color'
     to_run.each do |sql|
@@ -108,7 +110,6 @@ def do_evolve(noop, yes, nowait)
       print "Run this SQL? (type yes or no) "
     end
     if yes || STDIN.gets.strip=='yes'
-      require 'pg'
       config = ActiveRecord::Base.connection_config
       config.delete(:adapter)
       config[:dbname] = config.delete(:database)
@@ -121,10 +122,22 @@ def do_evolve(noop, yes, nowait)
         end
       end
       puts
-      conn = PG::Connection.open(config)
+      if Rails.configuration.database_configuration[Rails.env]['adapter'] == 'postgresql'
+        require 'pg'
+        conn = PG::Connection.open(config)
+      end
+      if Rails.configuration.database_configuration[Rails.env]['adapter'] == 'mysql'
+        require 'mysql'
+        conn = Mysql.new(config[:host], config[:user], config[:password], config[:dbname])
+      end
       to_run.each do |sql|
         puts SQLColor.colorize(sql)
-        conn.exec(sql)
+        if Rails.configuration.database_configuration[Rails.env]['adapter'] == 'postgresql'
+          conn.exec(sql)
+        end
+        if Rails.configuration.database_configuration[Rails.env]['adapter'] == 'mysql'
+          conn.query(sql)
+        end
       end
       puts "\n--==[ COMPLETED ]==--"
     else
@@ -310,9 +323,16 @@ end
 
 def gen_pg_adapter()
   $tmp_to_run = []
-  a = ActiveRecord::ConnectionAdapters::PostgreSQLAdapter.allocate
-  ActiveRecord::ConnectionAdapters::AbstractAdapter.instance_method(:initialize).bind(a).call ActiveRecord::Base.connection
-  return a
+  if Rails.configuration.database_configuration[Rails.env]['adapter'] == 'postgresql'
+    a = ActiveRecord::ConnectionAdapters::PostgreSQLAdapter.allocate
+    ActiveRecord::ConnectionAdapters::AbstractAdapter.instance_method(:initialize).bind(a).call ActiveRecord::Base.connection
+    return a
+  end
+  if Rails.configuration.database_configuration[Rails.env]['adapter'] == 'mysql'
+    a = ActiveRecord::ConnectionAdapters::MysqlAdapter.new
+    ActiveRecord::ConnectionAdapters::AbstractAdapter.instance_method(:initialize).bind(a).call ActiveRecord::Base.connection
+    return a
+  end
 end
 
 def sql_renames(renames)
@@ -374,6 +394,7 @@ NATIVE_DATABASE_PRECISION = {
 NATIVE_DATABASE_SCALE = {
 }
 
+
 def calc_column_changes(tbl, existing_cols, schema_cols)
 
   existing_cols_by_name = Hash[existing_cols.collect { |c| [c.name, c] }]
@@ -403,6 +424,13 @@ def calc_column_changes(tbl, existing_cols, schema_cols)
   to_run = []
 
   pg_a = gen_pg_adapter()
+
+  if Rails.configuration.database_configuration[Rails.env]['adapter'] == 'postgresql'
+    native_database_types = ActiveRecord::ConnectionAdapters::PostgreSQLAdapter::NATIVE_DATABASE_TYPES
+  end
+  if Rails.configuration.database_configuration[Rails.env]['adapter'] == 'mysql'
+    native_database_types = ActiveRecord::ConnectionAdapters::MysqlAdapter::NATIVE_DATABASE_TYPES
+  end
 
   if new_cols.size > 0
 #    puts "tbl: #{tbl} new_cols: #{new_cols}"
@@ -440,7 +468,7 @@ def calc_column_changes(tbl, existing_cols, schema_cols)
     if type_changed and sc.type.to_s=="decimal" and ec.type.to_s=="integer" and sc.opts[:scale]==0
       type_changed = false
     end
-    sc_limit = sc.opts.has_key?(:limit) ? sc.opts[:limit] : ActiveRecord::ConnectionAdapters::PostgreSQLAdapter::NATIVE_DATABASE_TYPES[sc.type.to_sym][:limit]
+    sc_limit = sc.opts.has_key?(:limit) ? sc.opts[:limit] : native_database_types[sc.type.to_sym][:limit]
     limit_changed = (sc.type=="string" and sc_limit!=ec.limit) # numeric types in postgres report the precision as the limit - ignore non string types for now
     sc_precision = sc.opts.has_key?(:precision) ? sc.opts[:precision] : NATIVE_DATABASE_PRECISION[sc.type]
     precision_changed = (sc.type=="decimal" and sc_precision!=ec.precision) # by type_to_sql in schema_statements.rb, precision is only used on decimal types
