@@ -155,13 +155,15 @@ def calc_index_changes(existing_indexes, schema_indexes, table_renames, rename_c
     connection.add_index table, columns, index
   end
   
+  to_run = $tmp_to_run
+
   delete_indexes.each do |index|
+    $tmp_to_run = []
     table = index.delete(:table)
     name = index[:name]
     connection.remove_index table, :name => name
+    to_run.append($tmp_to_run[0].sub('DROP INDEX', 'DROP INDEX IF EXISTS'))
   end
-
-  to_run = $tmp_to_run
 
   if !to_run.empty?
     to_run.unshift("\n-- update indexes")
