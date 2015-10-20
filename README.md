@@ -30,10 +30,8 @@ How it should work in practice:
 Install
 ---------
 
-<pre>
-$ gem build db-evolve.gemspec
-$ sudo gem install db-evolve-x.x.x.gem
-</pre>
+1. Add `gem 'db-evolve'` to your `Gemfile`.
+2. `$ bundle install`
 
 Quick Start
 ---------------------
