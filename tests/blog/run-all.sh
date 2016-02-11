@@ -33,8 +33,8 @@ for i in $( ls schemas/*.rb -1v ); do
     DIFF=$(diff /tmp/db_evolve_test_schema.sql "$SQL_FILE")
     set -e
     if [ -n "$DIFF" ]; then
-      echo "Failed DIFF: $i"
-      echo $DIFF
+      echo "Failed DIFF: /tmp/db_evolve_test_schema.sql != $SQL_FILE for $i"
+      echo "$DIFF"
       exit 1
     fi
 done

@@ -1,7 +1,7 @@
 Gem::Specification.new do |s|
   s.name        = 'db-evolve'
-  s.version     = '0.1.4'
-  s.date        = '2015-08-06'
+  s.version     = '0.1.6'
+  s.date        = '2016-02-11'
   s.summary     = "Schema Evolution for Ruby"
   s.description = "A diff/patch between your schema.rb and what's in your database."
   s.authors     = ["Derek Anderson"]

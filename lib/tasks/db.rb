@@ -208,8 +208,9 @@ class Table
     c.name = arguments[0]
     c.opts = arguments[1]
     if c.opts
-      c.default = c.opts["default"]
-      c.default = c.opts["null"]
+      c.opts[:default] = normalize_default(c.opts[:default]) if c.opts[:default].present?
+      c.default = c.opts[:default]
+      c.null = c.opts[:null]
       aka = c.opts[:aka]
       if !aka.nil?
         if aka.respond_to?('each')
@@ -451,7 +452,7 @@ def calc_column_changes(tbl, existing_cols, schema_cols)
     if type_changed or limit_changed or precision_changed or scale_changed
       pg_a.change_column(tbl, sc.name, sc.type.to_sym, sc.opts)
     end
-    if ec.default != sc.opts[:default]
+    if normalize_default(ec.default) != sc.opts[:default]
       pg_a.change_column_default(tbl, sc.name, sc.opts[:default])
     end
     sc_null = sc.opts.has_key?(:null) ? sc.opts[:null] : true
@@ -471,6 +472,13 @@ def calc_column_changes(tbl, existing_cols, schema_cols)
   return to_run, rename_cols
 end
 
+def normalize_default default
+  default = default.to_s if default.is_a? Symbol
+  if default==Float::INFINITY || default==-Float::INFINITY || default.is_a?(String) && (default.downcase == 'infinity' || default.downcase == '-infinity')
+    default = default.to_s.downcase
+  end
+  return default
+end
 
 
 $tmp_to_run = []
