@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
   s.name        = 'db-evolve'
-  s.version     = '0.1.6'
+  s.version     = '0.1.7'
   s.date        = '2016-02-11'
   s.summary     = "Schema Evolution for Ruby"
   s.description = "A diff/patch-esque tool to replace schema migrations in Ruby.  See https://github.com/keredson/ruby-db-evolve for details."
@@ -10,4 +10,3 @@ Gem::Specification.new do |s|
   s.homepage    = 'https://github.com/keredson/ruby-db-evolve'
   s.license       = 'GPLv2'
 end
-
