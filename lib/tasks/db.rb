@@ -474,7 +474,7 @@ end
 
 def normalize_default default
   default = default.to_s if default.is_a? Symbol
-  if default==Float::INFINITY || default==-Float::INFINITY || default.is_a?(String) && (default.downcase == 'infinity' || default.downcase == '-infinity')
+  if (default.respond_to?(:infinite?) && default.infinite?) || default.is_a?(String) && (default.downcase == 'infinity' || default.downcase == '-infinity')
     default = default.to_s.downcase
   end
   return default
@@ -482,9 +482,4 @@ end
 
 
 $tmp_to_run = []
-
-
-
-
-
 
