@@ -48,16 +48,24 @@ namespace :db do
 end
 
 
-def build_real_connection
+def build_real_connection_config to_exec: false
   require 'pg'
   config = ActiveRecord::Base.connection_config.clone
   config.delete(:adapter)
   config.delete(:pool)
   config[:dbname] = config.delete(:database)
   config[:user] = config.delete(:username) || ENV['USER'] || ENV['USERNAME']
-  return PG::Connection.open(config)
+  if to_exec
+    config.delete(:user)
+    config.delete(:password)
+    config.delete(:host)
+  end
+  return config 
 end
 
+def build_real_connection to_exec: false
+  return PG::Connection.open(build_real_connection_config to_exec: to_exec)
+end
 
 def do_evolve(noop, yes, nowait)
   existing_tables, existing_indexes = load_existing_tables()
@@ -85,7 +93,7 @@ def do_evolve(noop, yes, nowait)
   
   to_run += calc_index_changes(existing_indexes, $schema_indexes, renames, rename_cols_by_table)
 
-  to_run += calc_perms_changes(adds, $schema_tables) if $check_perms
+  to_run += calc_perms_changes($schema_tables) if $check_perms
 
   to_run += sql_drops(deletes)
 
@@ -110,7 +118,7 @@ def do_evolve(noop, yes, nowait)
       return
     end
 
-    config = ActiveRecord::Base.connection_config
+    config = build_real_connection_config to_exec: true
     puts "Connecting to database:"
     config.each do |k,v|
       next if k==:password
@@ -129,7 +137,7 @@ def do_evolve(noop, yes, nowait)
         end
       end
       puts
-      conn = build_real_connection
+      conn = build_real_connection to_exec: true
       to_run.each do |sql|
         puts SQLColor.colorize(sql)
         conn.exec(sql)
@@ -180,7 +188,7 @@ def calc_index_changes(existing_indexes, schema_indexes, table_renames, rename_c
   return to_run
 end
 
-def calc_perms_changes adds, schema_tables
+def calc_perms_changes schema_tables
   username = ActiveRecord::Base.connection_config[:username] || ENV['USER'] || ENV['USERNAME']
   database = ActiveRecord::Base.connection_config[:database]
   sql = %{
@@ -194,9 +202,6 @@ def calc_perms_changes adds, schema_tables
   existing_perms = Hash.new { |h, k| h[k] = Set.new }
   results.each do |row|
     existing_perms[row['table_name']].add(row['privilege_type'])
-  end
-  adds.each do |table_name|
-    existing_perms[table_name] += $allowed_perms
   end
   to_run = []
   schema_tables.each do |table_name, tbl|
