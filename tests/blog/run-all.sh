@@ -3,10 +3,11 @@
 mkdir -p db
 
 dropdb db_evolve_test
+echo "CREATE USER db_evolve_test WITH PASSWORD 'password';" | psql
 
 set -e
 
-createdb db_evolve_test
+createdb -O db_evolve_test db_evolve_test
 
 for i in $( ls schemas/*.rb -1v ); do
     echo "----------------------------------------------"
@@ -21,13 +22,14 @@ for i in $( ls schemas/*.rb -1v ); do
       exit 1
     fi
     set +e
-    pg_dump db_evolve_test --schema-only --no-owner --no-acl | \
+    pg_dump db_evolve_test --schema-only --no-owner | \
         grep -v "^--" | grep -v "^$" | grep -v "^SET " | \
-        grep -v "^CREATE EXTENSION" | grep -v "^COMMENT ON EXTENSION" \
+        grep -v "^CREATE EXTENSION" | grep -v "^COMMENT ON EXTENSION" | \
+        grep -v "^REVOKE ALL ON SCHEMA" | grep -v "^GRANT ALL ON SCHEMA" \
         > /tmp/db_evolve_test_schema.sql
     SQL_FILE="${i%.*}.sql"
     if [ ! -f "$SQL_FILE" ]; then
-      echo "ERROR - Missing schema comparison: $SQL_FILE"
+      echo "ERROR - Missing schema comparison: $SQL_FILE (to compare to /tmp/db_evolve_test_schema.sql)"
       exit 1
     fi 
     DIFF=$(diff /tmp/db_evolve_test_schema.sql "$SQL_FILE")

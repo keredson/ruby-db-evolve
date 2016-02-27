@@ -85,7 +85,7 @@ def do_evolve(noop, yes, nowait)
   
   to_run += calc_index_changes(existing_indexes, $schema_indexes, renames, rename_cols_by_table)
 
-  to_run += calc_perms_changes($schema_tables)
+  to_run += calc_perms_changes(adds, $schema_tables) if $check_perms
 
   to_run += sql_drops(deletes)
 
@@ -180,7 +180,7 @@ def calc_index_changes(existing_indexes, schema_indexes, table_renames, rename_c
   return to_run
 end
 
-def calc_perms_changes schema_tables
+def calc_perms_changes adds, schema_tables
   username = ActiveRecord::Base.connection_config[:username] || ENV['USER'] || ENV['USERNAME']
   database = ActiveRecord::Base.connection_config[:database]
   sql = %{
@@ -195,6 +195,9 @@ def calc_perms_changes schema_tables
   results.each do |row|
     existing_perms[row['table_name']].add(row['privilege_type'])
   end
+  adds.each do |table_name|
+    existing_perms[table_name] += $allowed_perms
+  end
   to_run = []
   schema_tables.each do |table_name, tbl|
     to_grant = (tbl.perms - existing_perms[table_name]).to_a
@@ -202,6 +205,11 @@ def calc_perms_changes schema_tables
     to_run.push("GRANT "+ to_grant.join(',') +" ON #{escape_table(table_name)} TO #{username}") unless to_grant.empty?
     to_run.push("REVOKE "+ to_revoke.join(',') +" ON #{escape_table(table_name)} FROM #{username}") unless to_revoke.empty?
   end
+
+  if !to_run.empty?
+    to_run.unshift("\n-- update permissions")
+  end
+  
   return to_run
 end
 
@@ -235,12 +243,14 @@ class Table
   end
   
   def grant *args
+    $check_perms = true
     args.each do |arg|
       @perms |= check_perm(arg)
     end
   end
   
   def revoke *args
+    $check_perms = true
     args.each do |arg|
       @perms -= check_perm(arg)
     end
@@ -277,7 +287,7 @@ end
 
 $schema_tables = {}
 $akas_tables = Hash.new { |h, k| h[k] = Set.new }
-$table_perms = {}
+$check_perms = false
 
 def create_table(name, opts={})
   tbl = Table.new
@@ -327,17 +337,19 @@ $default_perms = Set.new
 def check_perm perm
     perm = perm.to_s.upcase
     return Set.new($allowed_perms) if perm=="ALL"
-    raise ArgumentError.new("permission #{perm} is not one of #{$allowed_perms}") unless $allowed_perms.include? perm
+    raise ArgumentError.new("permission #{perm} is not one of #{$allowed_perms.to_a}") unless $allowed_perms.include? perm
     return Set.new [perm]
 end
 
 def grant(*perms)
+  $check_perms = true
   perms.each do |perm|
     $default_perms |= check_perm(perm)
   end
 end
 
 def revoke(*perms)
+  $check_perms = true
   perms.each do |perm|
     $default_perms -= check_perm(perm)
   end
