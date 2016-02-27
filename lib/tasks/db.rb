@@ -48,6 +48,17 @@ namespace :db do
 end
 
 
+def build_real_connection
+  require 'pg'
+  config = ActiveRecord::Base.connection_config.clone
+  config.delete(:adapter)
+  config.delete(:pool)
+  config[:dbname] = config.delete(:database)
+  config[:user] = config.delete(:username) || ENV['USER'] || ENV['USERNAME']
+  return PG::Connection.open(config)
+end
+
+
 def do_evolve(noop, yes, nowait)
   existing_tables, existing_indexes = load_existing_tables()
 
@@ -73,6 +84,8 @@ def do_evolve(noop, yes, nowait)
   end
   
   to_run += calc_index_changes(existing_indexes, $schema_indexes, renames, rename_cols_by_table)
+
+  to_run += calc_perms_changes($schema_tables)
 
   to_run += sql_drops(deletes)
 
@@ -108,11 +121,6 @@ def do_evolve(noop, yes, nowait)
       print "Run this SQL? (type yes or no) "
     end
     if yes || STDIN.gets.strip=='yes'
-      require 'pg'
-      config = ActiveRecord::Base.connection_config
-      config.delete(:adapter)
-      config[:dbname] = config.delete(:database)
-      config[:user] = config.delete(:username)
       if !nowait
         print "\nExecuting in "
         [3,2,1].each do |c|
@@ -121,7 +129,7 @@ def do_evolve(noop, yes, nowait)
         end
       end
       puts
-      conn = PG::Connection.open(config)
+      conn = build_real_connection
       to_run.each do |sql|
         puts SQLColor.colorize(sql)
         conn.exec(sql)
@@ -172,6 +180,30 @@ def calc_index_changes(existing_indexes, schema_indexes, table_renames, rename_c
   return to_run
 end
 
+def calc_perms_changes schema_tables
+  username = ActiveRecord::Base.connection_config[:username] || ENV['USER'] || ENV['USERNAME']
+  database = ActiveRecord::Base.connection_config[:database]
+  sql = %{
+    select table_name, privilege_type
+    from information_schema.role_table_grants
+    where table_catalog=#{ActiveRecord::Base::sanitize(database)}
+      and grantee=#{ActiveRecord::Base::sanitize(username)} 
+      and table_schema='public';
+  }
+  results = build_real_connection.exec(sql)
+  existing_perms = Hash.new { |h, k| h[k] = Set.new }
+  results.each do |row|
+    existing_perms[row['table_name']].add(row['privilege_type'])
+  end
+  to_run = []
+  schema_tables.each do |table_name, tbl|
+    to_grant = (tbl.perms - existing_perms[table_name]).to_a
+    to_revoke = (existing_perms[table_name] - tbl.perms).to_a
+    to_run.push("GRANT "+ to_grant.join(',') +" ON #{escape_table(table_name)} TO #{username}") unless to_grant.empty?
+    to_run.push("REVOKE "+ to_revoke.join(',') +" ON #{escape_table(table_name)} FROM #{username}") unless to_revoke.empty?
+  end
+  return to_run
+end
 
 
 IgnoreTables = Set.new ["schema_migrations"]
@@ -196,10 +228,22 @@ end
 
 
 class Table
-  attr_accessor :name, :opts, :id, :columns
+  attr_accessor :name, :opts, :id, :columns, :perms
   
   def initialize()
     @columns = []
+  end
+  
+  def grant *args
+    args.each do |arg|
+      @perms |= check_perm(arg)
+    end
+  end
+  
+  def revoke *args
+    args.each do |arg|
+      @perms -= check_perm(arg)
+    end
   end
   
   def method_missing(method_sym, *arguments, &block)
@@ -233,11 +277,13 @@ end
 
 $schema_tables = {}
 $akas_tables = Hash.new { |h, k| h[k] = Set.new }
+$table_perms = {}
 
 def create_table(name, opts={})
   tbl = Table.new
   tbl.name = name
   tbl.opts = opts
+  tbl.perms = Set.new $default_perms
   if opts
     if opts.has_key? 'id'
       tbl.id = opts['id']
@@ -273,6 +319,28 @@ def add_index(table, columns, opts)
     opts[:unique] = false
   end
   $schema_indexes.append(opts)
+end
+
+$allowed_perms = Set.new ["INSERT", "SELECT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"]
+$default_perms = Set.new
+
+def check_perm perm
+    perm = perm.to_s.upcase
+    return Set.new($allowed_perms) if perm=="ALL"
+    raise ArgumentError.new("permission #{perm} is not one of #{$allowed_perms}") unless $allowed_perms.include? perm
+    return Set.new [perm]
+end
+
+def grant(*perms)
+  perms.each do |perm|
+    $default_perms |= check_perm(perm)
+  end
+end
+
+def revoke(*perms)
+  perms.each do |perm|
+    $default_perms -= check_perm(perm)
+  end
 end
 
 module DB
