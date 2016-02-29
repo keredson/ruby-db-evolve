@@ -50,16 +50,21 @@ end
 
 def build_real_connection_config to_exec: false
   require 'pg'
-  config = ActiveRecord::Base.connection_config.clone
-  config.delete(:adapter)
-  config.delete(:pool)
-  config[:dbname] = config.delete(:database)
-  config[:user] = config.delete(:username) || ENV['USER'] || ENV['USERNAME']
   if to_exec
-    config.delete(:user)
-    config.delete(:password)
-    config.delete(:host)
+    config_name = "#{Rails.env}_dbevolve"
+    if Rails.configuration.database_configuration[config_name].present?
+      config = Rails.configuration.database_configuration[config_name].clone
+    else
+    config = ActiveRecord::Base.connection_config.clone
+    puts "Your database.yml file does not contain an entry for '#{config_name}', so we're using '#{Rails.env}'.  For more information visit: https://github.com/keredson/ruby-db-evolve/blob/master/README.md#schema-change-permissions"
+    end
+  else
+    config = ActiveRecord::Base.connection_config.clone
   end
+  config.delete("adapter")
+  config.delete("pool")
+  config["dbname"] = config.delete("database")
+  config["user"] = config.delete("username") || ENV['USER'] || ENV['USERNAME']
   return config 
 end
 
