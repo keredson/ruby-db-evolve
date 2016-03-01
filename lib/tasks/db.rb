@@ -48,7 +48,7 @@ namespace :db do
 end
 
 
-def build_real_connection_config to_exec: false
+def build_real_connection_config to_exec: false, noop: false
   require 'pg'
   if to_exec
     config_name = "#{Rails.env}_dbevolve"
@@ -56,20 +56,20 @@ def build_real_connection_config to_exec: false
       config = Rails.configuration.database_configuration[config_name].clone
     else
     config = ActiveRecord::Base.connection_config.clone
-    puts "Your database.yml file does not contain an entry for '#{config_name}', so we're using '#{Rails.env}'.  For more information visit: https://github.com/keredson/ruby-db-evolve/blob/master/README.md#schema-change-permissions"
+    puts "Your database.yml file does not contain an entry for '#{config_name}', so we're using '#{Rails.env}'.  For more information visit: https://github.com/keredson/ruby-db-evolve/blob/master/README.md#schema-change-permissions" if !noop
     end
   else
     config = ActiveRecord::Base.connection_config.clone
   end
-  config.delete("adapter")
-  config.delete("pool")
-  config["dbname"] = config.delete("database")
-  config["user"] = config.delete("username") || ENV['USER'] || ENV['USERNAME']
+  config.delete(:adapter)
+  config.delete(:pool)
+  config[:dbname] = config.delete(:database)
+  config[:user] = config.delete(:username) || ENV['USER'] || ENV['USERNAME']
   return config 
 end
 
-def build_real_connection to_exec: false
-  return PG::Connection.open(build_real_connection_config to_exec: to_exec)
+def build_real_connection to_exec: false, noop: false
+  return PG::Connection.open(build_real_connection_config to_exec: to_exec, noop: noop)
 end
 
 def do_evolve(noop, yes, nowait)
@@ -98,7 +98,7 @@ def do_evolve(noop, yes, nowait)
   
   to_run += calc_index_changes(existing_indexes, $schema_indexes, renames, rename_cols_by_table)
 
-  to_run += calc_perms_changes($schema_tables) if $check_perms
+  to_run += calc_perms_changes($schema_tables, noop) unless $check_perms_for.empty?
 
   to_run += sql_drops(deletes)
 
@@ -193,27 +193,35 @@ def calc_index_changes(existing_indexes, schema_indexes, table_renames, rename_c
   return to_run
 end
 
-def calc_perms_changes schema_tables
+def get_db_username
   username = ActiveRecord::Base.connection_config[:username] || ENV['USER'] || ENV['USERNAME']
+  return username
+end
+
+def calc_perms_changes schema_tables, noop
+  username = get_db_username
+  users = ($check_perms_for.map { |user| ActiveRecord::Base::sanitize(user) }).join ","
   database = ActiveRecord::Base.connection_config[:database]
   sql = %{
-    select table_name, privilege_type
+    select grantee, table_name, privilege_type
     from information_schema.role_table_grants
     where table_catalog=#{ActiveRecord::Base::sanitize(database)}
-      and grantee=#{ActiveRecord::Base::sanitize(username)} 
+      and grantee in (#{users})
       and table_schema='public';
   }
-  results = build_real_connection.exec(sql)
-  existing_perms = Hash.new { |h, k| h[k] = Set.new }
+  results = build_real_connection(noop: noop).exec(sql)
+  existing_perms = Hash.new { |h, k| h[k] = Hash.new { |h, k| h[k] = Set.new } }
   results.each do |row|
-    existing_perms[row['table_name']].add(row['privilege_type'])
+    existing_perms[row['grantee']][row['table_name']].add(row['privilege_type'])
   end
   to_run = []
   schema_tables.each do |table_name, tbl|
-    to_grant = (tbl.perms - existing_perms[table_name]).to_a
-    to_revoke = (existing_perms[table_name] - tbl.perms).to_a
-    to_run.push("GRANT "+ to_grant.join(',') +" ON #{escape_table(table_name)} TO #{username}") unless to_grant.empty?
-    to_run.push("REVOKE "+ to_revoke.join(',') +" ON #{escape_table(table_name)} FROM #{username}") unless to_revoke.empty?
+    $check_perms_for.each do |user|
+      to_grant = (tbl.perms_for_user[user] - existing_perms[user][table_name]).to_a
+      to_revoke = (existing_perms[user][table_name] - tbl.perms_for_user[user]).to_a
+      to_run.push("GRANT "+ to_grant.join(',') +" ON #{escape_table(table_name)} TO #{user}") unless to_grant.empty?
+      to_run.push("REVOKE "+ to_revoke.join(',') +" ON #{escape_table(table_name)} FROM #{user}") unless to_revoke.empty?
+    end
   end
 
   if !to_run.empty?
@@ -246,23 +254,25 @@ end
 
 
 class Table
-  attr_accessor :name, :opts, :id, :columns, :perms
+  attr_accessor :name, :opts, :id, :columns, :perms_for_user
   
   def initialize()
     @columns = []
   end
   
-  def grant *args
-    $check_perms = true
+  def grant *args, to: nil
+    to = get_db_username if to.nil?
+    $check_perms_for.add(to)
     args.each do |arg|
-      @perms |= check_perm(arg)
+      @perms_for_user[to] |= check_perm(arg)
     end
   end
   
-  def revoke *args
-    $check_perms = true
+  def revoke *args, from: nil
+    from = get_db_username if from.nil?
+    $check_perms_for.add(from)
     args.each do |arg|
-      @perms -= check_perm(arg)
+      @perms_for_user[from] -= check_perm(arg)
     end
   end
   
@@ -297,13 +307,16 @@ end
 
 $schema_tables = {}
 $akas_tables = Hash.new { |h, k| h[k] = Set.new }
-$check_perms = false
+$check_perms_for = Set.new
 
 def create_table(name, opts={})
   tbl = Table.new
   tbl.name = name
   tbl.opts = opts
-  tbl.perms = Set.new $default_perms
+  tbl.perms_for_user = Hash.new { |h, k| h[k] = Set.new }
+  $default_perms_for.each do |k,v|
+    tbl.perms_for_user[k] += v
+  end
   if opts
     if opts.has_key? 'id'
       tbl.id = opts['id']
@@ -342,7 +355,7 @@ def add_index(table, columns, opts)
 end
 
 $allowed_perms = Set.new ["INSERT", "SELECT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"]
-$default_perms = Set.new
+$default_perms_for = Hash.new { |h, k| h[k] = Set.new }
 
 def check_perm perm
     perm = perm.to_s.upcase
@@ -351,17 +364,19 @@ def check_perm perm
     return Set.new [perm]
 end
 
-def grant(*perms)
-  $check_perms = true
+def grant(*perms, to: nil)
+  to = get_db_username if to.nil?
+  $check_perms_for.add(to)
   perms.each do |perm|
-    $default_perms |= check_perm(perm)
+    $default_perms_for[to] |= check_perm(perm)
   end
 end
 
-def revoke(*perms)
-  $check_perms = true
+def revoke(*perms, from: nil)
+  from = get_db_username if from.nil?
+  $check_perms_for.add(from)
   perms.each do |perm|
-    $default_perms -= check_perm(perm)
+    $default_perms_for[from] -= check_perm(perm)
   end
 end
 
@@ -445,6 +460,9 @@ def sql_adds(tables)
   end
   if !$tmp_to_run.empty?
     $tmp_to_run.unshift("\n-- add tables")
+    if !$check_perms_for.empty?
+      $tmp_to_run << "REVOKE ALL ON #{(tables.map {|t| escape_table(t)}).join(',')} FROM #{$check_perms_for.to_a.join(',')}"
+    end
   end
   return $tmp_to_run
 end
