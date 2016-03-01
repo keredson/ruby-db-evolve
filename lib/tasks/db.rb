@@ -54,16 +54,16 @@ def build_real_connection_config to_exec: false, noop: false
   if to_exec
     config_name = "#{Rails.env}_dbevolve"
     if Rails.configuration.database_configuration[config_name].present?
-      config = Rails.configuration.database_configuration[config_name].clone
+      config = HashWithIndifferentAccess.new Rails.configuration.database_configuration[config_name]
     else
-      config = ActiveRecord::Base.connection_config.clone
+      config = HashWithIndifferentAccess.new ActiveRecord::Base.connection_config
       unless $i_nagged || noop || Rails.env=='development'
         puts "Your database.yml file does not contain an entry for '#{config_name}', so we're using '#{Rails.env}'.  This works if your database user has permission to edit your schema, but this is not recommended outside of development.  For more information visit: https://github.com/keredson/ruby-db-evolve/blob/master/README.md#schema-change-permissions"
         $i_nagged = true
       end
     end
   else
-    config = ActiveRecord::Base.connection_config.clone
+    config = HashWithIndifferentAccess.new ActiveRecord::Base.connection_config
   end
   config.delete(:adapter)
   config.delete(:pool)
@@ -130,7 +130,7 @@ def do_evolve(noop, yes, nowait)
     config = build_real_connection_config to_exec: true
     puts "Connecting to database:"
     config.each do |k,v|
-      next if k==:password
+      v = "*" * v.length if k.present? && k.to_s=='password'
       puts "\t#{k} => #{v}"
     end
     
