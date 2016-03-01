@@ -47,6 +47,7 @@ namespace :db do
 
 end
 
+$i_nagged = false
 
 def build_real_connection_config to_exec: false, noop: false
   require 'pg'
@@ -55,8 +56,11 @@ def build_real_connection_config to_exec: false, noop: false
     if Rails.configuration.database_configuration[config_name].present?
       config = Rails.configuration.database_configuration[config_name].clone
     else
-    config = ActiveRecord::Base.connection_config.clone
-    puts "Your database.yml file does not contain an entry for '#{config_name}', so we're using '#{Rails.env}'.  For more information visit: https://github.com/keredson/ruby-db-evolve/blob/master/README.md#schema-change-permissions" if !noop
+      config = ActiveRecord::Base.connection_config.clone
+      unless $i_nagged || noop || Rails.env=='development'
+        puts "Your database.yml file does not contain an entry for '#{config_name}', so we're using '#{Rails.env}'.  This works if your database user has permission to edit your schema, but this is not recommended outside of development.  For more information visit: https://github.com/keredson/ruby-db-evolve/blob/master/README.md#schema-change-permissions"
+        $i_nagged = true
+      end
     end
   else
     config = ActiveRecord::Base.connection_config.clone
