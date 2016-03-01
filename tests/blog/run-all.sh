@@ -4,6 +4,7 @@ mkdir -p db
 
 dropdb db_evolve_test
 echo "CREATE USER db_evolve_test WITH PASSWORD 'password';" | psql template1
+echo "CREATE USER db_evolve_test2 WITH PASSWORD 'password';" | psql template1
 
 set -e
 
