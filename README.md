@@ -120,6 +120,39 @@ Status
 * Feature complete (ADD/DROP/RENAME tables, columns and indexes, ALTER types, limits, nullable, precision, scale).
 * GRAS (Generally Recognized as Safe).  It prompts yes/no before running any SQL.  And switching back to migrations is just as easy as switching to DB::Evolve.
 
+Schema Change Permissions
+-------------------------
+Normally, in production, you don't want your web server's database account to have permissions to modify your schema.  To have db:evolve run the schema changes as a different user than the user for your environment, create a second db env with the same name, but with `_dbevolve` appended.  For example, if my `datebase.yml` looks like:
+
+```
+production:
+  adapter: postgresql
+  database: mysite_prod
+  host: localhost
+  username: www
+  password: passw0rd
+```
+
+Adding this would work:
+
+```
+production_dbevolve:
+  adapter: postgresql
+  database: mysite_prod
+  host: localhost
+  username: postgres
+  password: 5uper5ecret
+```
+
+Or more simply this:
+```
+production_dbevolve:
+  adapter: postgresql
+  database: mysite_prod
+  # not specifying the host, username and password makes postgres use local auth,
+  # assuming your local user has permissions to modify the schema.
+```
+
 
 FAQ
 ------
