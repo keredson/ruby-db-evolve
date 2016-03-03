@@ -47,33 +47,36 @@ namespace :db do
 
 end
 
+
 $i_nagged = false
 
-def build_real_connection_config to_exec: false, noop: false
-  require 'pg'
-  if to_exec
-    config_name = "#{Rails.env}_dbevolve"
-    if Rails.configuration.database_configuration[config_name].present?
-      config = Rails.configuration.database_configuration[config_name].clone
-    else
-      config = ActiveRecord::Base.connection_config.clone
-      unless $i_nagged || noop || Rails.env=='development'
-        puts "Your database.yml file does not contain an entry for '#{config_name}', so we're using '#{Rails.env}'.  This works if your database user has permission to edit your schema, but this is not recommended outside of development.  For more information visit: https://github.com/keredson/ruby-db-evolve/blob/master/README.md#schema-change-permissions"
-        $i_nagged = true
-      end
-    end
+$db_username = HashWithIndifferentAccess.new(Rails.configuration.database_configuration[Rails.env])[:username] || ENV['USER'] || ENV['USERNAME']
+
+def get_connection_config
+  config_name = "#{Rails.env}_dbevolve"
+  if Rails.configuration.database_configuration[config_name].present?
+    config = Rails.configuration.database_configuration[config_name]
   else
-    config = ActiveRecord::Base.connection_config.clone
+    unless $i_nagged || Rails.env=='development'
+      puts "Your database.yml file does not contain an entry for '#{config_name}', so we're using '#{Rails.env}'.  This works if your database user has permission to edit your schema, but this is not recommended outside of development.  For more information visit: https://github.com/keredson/ruby-db-evolve/blob/master/README.md#schema-change-permissions"
+      $i_nagged = true
+    end
+    config = Rails.configuration.database_configuration[Rails.env]
   end
+  return config
+end
+
+def build_pg_connection_config
+  config = HashWithIndifferentAccess.new get_connection_config
   config.delete(:adapter)
   config.delete(:pool)
   config[:dbname] = config.delete(:database)
   config[:user] = config.delete(:username) || ENV['USER'] || ENV['USERNAME']
-  return config 
+  return config
 end
 
-def build_real_connection to_exec: false, noop: false
-  return PG::Connection.open(build_real_connection_config to_exec: to_exec, noop: noop)
+def build_pg_connection
+  return PG::Connection.open(build_pg_connection_config)
 end
 
 def do_evolve(noop, yes, nowait)
@@ -127,10 +130,9 @@ def do_evolve(noop, yes, nowait)
       return
     end
 
-    config = build_real_connection_config to_exec: true
     puts "Connecting to database:"
-    config.each do |k,v|
-      next if k==:password
+    build_pg_connection_config.each do |k,v|
+      v = "*" * v.length if k.present? && k.to_s=='password'
       puts "\t#{k} => #{v}"
     end
     
@@ -146,7 +148,7 @@ def do_evolve(noop, yes, nowait)
         end
       end
       puts
-      conn = build_real_connection to_exec: true
+      conn = build_pg_connection
       to_run.each do |sql|
         puts SQLColor.colorize(sql)
         conn.exec(sql)
@@ -197,13 +199,7 @@ def calc_index_changes(existing_indexes, schema_indexes, table_renames, rename_c
   return to_run
 end
 
-def get_db_username
-  username = ActiveRecord::Base.connection_config[:username] || ENV['USER'] || ENV['USERNAME']
-  return username
-end
-
 def calc_perms_changes schema_tables, noop
-  username = get_db_username
   users = ($check_perms_for.map { |user| ActiveRecord::Base::sanitize(user) }).join ","
   database = ActiveRecord::Base.connection_config[:database]
   sql = %{
@@ -213,7 +209,7 @@ def calc_perms_changes schema_tables, noop
       and grantee in (#{users})
       and table_schema='public';
   }
-  results = build_real_connection(noop: noop).exec(sql)
+  results = build_pg_connection.exec(sql)
   existing_perms = Hash.new { |h, k| h[k] = Hash.new { |h, k| h[k] = Set.new } }
   results.each do |row|
     existing_perms[row['grantee']][row['table_name']].add(row['privilege_type'])
@@ -241,6 +237,7 @@ IgnoreTables = Set.new ["schema_migrations"]
 def load_existing_tables()
   existing_tables = {}
   existing_indexes = []
+  ActiveRecord::Base.establish_connection(get_connection_config)
   connection = ActiveRecord::Base.connection
   connection.tables.sort.each do |tbl|
     next if IgnoreTables.include? tbl
@@ -265,7 +262,7 @@ class Table
   end
   
   def grant *args, to: nil
-    to = get_db_username if to.nil?
+    to = $db_username if to.nil?
     $check_perms_for.add(to)
     args.each do |arg|
       @perms_for_user[to] |= check_perm(arg)
@@ -273,7 +270,7 @@ class Table
   end
   
   def revoke *args, from: nil
-    from = get_db_username if from.nil?
+    from = $db_username if from.nil?
     $check_perms_for.add(from)
     args.each do |arg|
       @perms_for_user[from] -= check_perm(arg)
@@ -369,7 +366,7 @@ def check_perm perm
 end
 
 def grant(*perms, to: nil)
-  to = get_db_username if to.nil?
+  to = $db_username if to.nil?
   $check_perms_for.add(to)
   perms.each do |perm|
     $default_perms_for[to] |= check_perm(perm)
@@ -377,7 +374,7 @@ def grant(*perms, to: nil)
 end
 
 def revoke(*perms, from: nil)
-  from = get_db_username if from.nil?
+  from = $db_username if from.nil?
   $check_perms_for.add(from)
   perms.each do |perm|
     $default_perms_for[from] -= check_perm(perm)
