@@ -27,7 +27,7 @@ for i in $( ls schemas/*.rb -1v ); do
         grep -v "^--" | grep -v "^$" | grep -v "^SET " | \
         grep -v "^CREATE EXTENSION" | grep -v "^COMMENT ON EXTENSION" | \
         grep -v "^REVOKE ALL ON SCHEMA" | grep -v "^GRANT ALL ON SCHEMA" | \
-        grep -v "^REVOKE ALL ON TABLE .* FROM db_evolve_test;" | grep -v "^GRANT ALL ON TABLE .* TO db_evolve_test;" \
+        grep -v "^REVOKE ALL ON TABLE .* FROM `whoami`;" | grep -v "^GRANT ALL ON TABLE .* TO `whoami`;" \
         > /tmp/db_evolve_test_schema.sql
     SQL_FILE="${i%.*}.sql"
     if [ ! -f "$SQL_FILE" ]; then

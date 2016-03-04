@@ -5,3 +5,7 @@ development:
   password: password
   host: localhost
   
+development_dbevolve:
+  adapter: postgresql
+  database: db_evolve_test
+  

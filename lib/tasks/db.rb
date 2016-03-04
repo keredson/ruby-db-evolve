@@ -105,6 +105,8 @@ def do_evolve(noop, yes, nowait)
   
   to_run += calc_index_changes(existing_indexes, $schema_indexes, renames, rename_cols_by_table)
 
+  to_run += calc_fk_changes($foreign_keys, Set.new($schema_tables.keys) + Set.new(existing_tables.keys))
+
   to_run += calc_perms_changes($schema_tables, noop) unless $check_perms_for.empty?
 
   to_run += sql_drops(deletes)
@@ -199,6 +201,55 @@ def calc_index_changes(existing_indexes, schema_indexes, table_renames, rename_c
   return to_run
 end
 
+def calc_fk_changes(foreign_keys, tables)
+  existing_foreign_keys = []
+  unless tables.empty?
+    tables_sql = (tables.map {|tn| ActiveRecord::Base.sanitize(tn)}).join(',')
+    sql = %{
+      SELECT
+          tc.constraint_name, tc.table_name, kcu.column_name, 
+          ccu.table_name AS foreign_table_name,
+          ccu.column_name AS foreign_column_name 
+      FROM 
+          information_schema.table_constraints AS tc 
+          JOIN information_schema.key_column_usage AS kcu
+            ON tc.constraint_name = kcu.constraint_name
+          JOIN information_schema.constraint_column_usage AS ccu
+            ON ccu.constraint_name = tc.constraint_name
+      WHERE constraint_type = 'FOREIGN KEY'
+        AND tc.table_name in (#{tables_sql});
+    }
+    build_pg_connection.exec(sql).each do |row|
+      existing_foreign_keys << HashWithIndifferentAccess.new({
+        :from_table => row['table_name'],
+        :to_table => row['foreign_table_name'],
+        :column => row['column_name'],
+        :primary_key => row['foreign_column_name'],
+        :name => row['constraint_name'],
+      })
+    end
+  end
+
+  existing_foreign_keys = Set.new existing_foreign_keys
+  foreign_keys = Set.new foreign_keys
+  add_fks = foreign_keys - existing_foreign_keys
+  delete_fks = existing_foreign_keys - foreign_keys
+
+  to_run = []
+  delete_fks.each do |fk|
+    to_run << "ALTER TABLE #{escape_table(fk[:from_table])} DROP CONSTRAINT IF EXISTS #{escape_table(fk[:name])}"
+  end
+  add_fks.each do |fk|
+    to_run << "ALTER TABLE #{escape_table(fk[:from_table])} ADD CONSTRAINT #{escape_table(fk[:name])} FOREIGN KEY (#{escape_table(fk[:column])}) REFERENCES #{escape_table(fk[:to_table])} (#{escape_table(fk[:primary_key])}) MATCH FULL"
+  end
+
+  if !to_run.empty?
+    to_run.unshift("\n-- update foreign keys")
+  end
+
+  return to_run
+end
+
 def calc_perms_changes schema_tables, noop
   users = ($check_perms_for.map { |user| ActiveRecord::Base::sanitize(user) }).join ","
   database = ActiveRecord::Base.connection_config[:database]
@@ -209,9 +260,8 @@ def calc_perms_changes schema_tables, noop
       and grantee in (#{users})
       and table_schema='public';
   }
-  results = build_pg_connection.exec(sql)
   existing_perms = Hash.new { |h, k| h[k] = Hash.new { |h, k| h[k] = Set.new } }
-  results.each do |row|
+  build_pg_connection.exec(sql).each do |row|
     existing_perms[row['grantee']][row['table_name']].add(row['privilege_type'])
   end
   to_run = []
@@ -294,6 +344,14 @@ class Table
           c.akas = [aka]
         end
       end
+      fk = c.opts.delete(:fk)
+      if fk.present?
+        if fk.respond_to?('each')
+          add_foreign_key self.name, fk[0], column: c.name, primary_key: fk[1]
+        else
+          add_foreign_key self.name, fk, column: c.name
+        end
+      end
     else
       c.opts = {}
     end
@@ -347,12 +405,28 @@ end
 $schema_indexes = []
 
 def add_index(table, columns, opts)
+  opts = HashWithIndifferentAccess.new opts
   opts[:table] = table
   opts[:columns] = columns
   if !opts.has_key? :unique
     opts[:unique] = false
   end
   $schema_indexes.append(opts)
+end
+
+$foreign_keys = []
+
+def add_foreign_key(from_table, to_table, opts={})
+  opts = HashWithIndifferentAccess.new opts
+  opts[:from_table] = from_table.to_s
+  opts[:to_table] = to_table.to_s
+  opts[:column] = to_table.to_s.singularize + "_id" unless opts[:column].present?
+  opts[:primary_key] = "id" unless opts[:primary_key].present?
+  opts[:name] = "fk #{from_table.to_s.parameterize}.#{opts[:column].to_s.parameterize} to #{to_table.to_s.parameterize}.#{opts[:primary_key].to_s.parameterize}" unless opts[:name].present?
+  opts[:column] = opts[:column].to_s
+  opts[:primary_key] = opts[:primary_key].to_s
+  opts[:name] = opts[:name].to_s
+  $foreign_keys.append(opts)
 end
 
 $allowed_perms = Set.new ["INSERT", "SELECT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"]
@@ -414,6 +488,7 @@ def calc_table_changes(existing_tables, schema_tables, akas_tables)
 end
 
 def escape_table(k)
+  k = k.to_s if k.is_a? Symbol
   return PG::Connection.quote_ident k
 end
 
