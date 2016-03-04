@@ -4,6 +4,9 @@ Ruby DB::Evolve
 
 Introduction
 ----------------
+
+**TL;DR:** *DB::Evolve is to Ruby Migrations as React is to jQuery.*
+
 If I'm defining some structured data (like a schema), I want to simply define it outright.  Rather than writing a bunch of diffs/deltas/migrations and letting a tool rebuild the structure I want to write the structure and have a tool build the diffs/deltas/migrations.  It's more efficient and less error prone, which makes it cheaper.  And if it's cheaper I'm more likely to do it, which means I'm less likely to work around bad schemas, which leads to better schemas overall.  *Win.*
 
 So I wrote [such a tool](https://github.com/keredson/deseb) for Python/Django back in 2006 (for Google's Summer of Code).  I still use it today.
@@ -113,12 +116,50 @@ COMMIT;
 You get the idea.  Stop writing your own diffs to apply to your schema.  Just write your schema!
 
 
-Status
---------
+Database Permission Management
+------------------------------
+To manage table level permissions db:evolve has several directives available.  To grant everything, use `grant`:
 
-* PostgreSQL only ATM.
-* Feature complete (ADD/DROP/RENAME tables, columns and indexes, ALTER types, limits, nullable, precision, scale).
-* GRAS (Generally Recognized as Safe).  It prompts yes/no before running any SQL.  And switching back to migrations is just as easy as switching to DB::Evolve.
+```ruby
+DB::Evolve::Schema.define do
+  grant :all
+  create_table "whatever" do |t|
+    [...]
+```
+
+Acceptable options are `:insert`, `:select`, `:update`, `:delete`, `:truncate`, `:references`, `:trigger` and `:all`.
+
+To grant everything except `:references` and `:trigger`:
+```ruby
+DB::Evolve::Schema.define do
+  grant :all
+  revoke :references, :trigger
+  create_table "whatever" do |t|
+    [...]
+```
+
+Order is important, including between `create_table` statements.  Grants/revokes only effect the tables defined after them.
+
+If you want to grant or revoke permissions on a specific table:
+
+```ruby
+  create_table "whatever" do |t|
+    t.string   "some_sort_of_log_info"
+    t.revoke :update, :delete
+  end
+```
+
+Grant and revoke by default apply to the current db user (as defined by your env in `database.yml`), but you can mange other users as well:
+
+```ruby
+  create_table "whatever" do |t|
+    t.string   "some_sort_of_log_info"
+    t.revoke :update, :delete, from: "normal_user"
+    t.grant :update, :delete, to: "admin_user"
+  end
+```
+
+DB::Evolve will only update permissions for users specifically mentioned (via `from` or `to`, or in `database.yml` for the given environment), not every user in the database.
 
 Schema Change Permissions
 -------------------------
@@ -152,6 +193,13 @@ production_dbevolve:
   # not specifying the host, username and password makes postgres use local auth,
   # assuming your local user has permissions to modify the schema.
 ```
+
+Status
+--------
+
+* PostgreSQL only ATM.
+* Feature complete (ADD/DROP/RENAME tables, columns and indexes, ALTER types, limits, nullable, precision, scale).
+* GRAS (Generally Recognized as Safe).  It prompts yes/no before running any SQL.  And switching back to migrations is just as easy as switching to DB::Evolve.
 
 
 FAQ
