@@ -116,6 +116,55 @@ COMMIT;
 You get the idea.  Stop writing your own diffs to apply to your schema.  Just write your schema!
 
 
+Foreign Keys
+------------
+Rails 4 (!!!) added support for foreign keys, but the syntax is wanting.  We support it, but I don't recommend it:
+
+```ruby 
+  create_table "posts" do |t|
+  end
+  create_table "comments" do |t|
+    t.integer  "post_id"
+  end
+  add_foreign_key :comments, :posts
+```
+
+We also support our own syntax for defining a foreign key:
+```ruby 
+  create_table "posts" do |t|
+  end
+  create_table "comments" do |t|
+    t.integer  "post_id", :fk => "posts"
+  end
+```
+
+Both work, but ours is a lot clearer / less verbose once you get past the base case.  Compare:
+
+```ruby 
+  create_table "users" do |t|
+  end
+  create_table "messages" do |t|
+    t.integer  "from_user_id", :fk => "users"
+    t.integer  "to_user_id", :fk => "users"
+  end
+```
+
+With:
+
+```ruby 
+  create_table "users" do |t|
+  end
+  create_table "messages" do |t|
+    t.integer  "from_user_id", :fk => "users"
+    t.integer  "to_user_id", :fk => "users"
+  end
+  add_foreign_key :messages, :users, column: :from_user_id
+  add_foreign_key :messages, :users, column: :to_user_id
+```
+
+Our foreign key support works with Rails `>=3.2`.
+
+
 Database Permission Management
 ------------------------------
 To manage table level permissions db:evolve has several directives available.  To grant everything, use `grant`:
