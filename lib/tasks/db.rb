@@ -405,7 +405,6 @@ end
 $schema_indexes = []
 
 def add_index(table, columns, opts)
-  opts = HashWithIndifferentAccess.new opts
   opts[:table] = table
   opts[:columns] = columns
   if !opts.has_key? :unique
