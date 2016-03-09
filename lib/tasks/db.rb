@@ -105,7 +105,7 @@ def do_evolve(noop, yes, nowait)
   
   to_run += calc_index_changes(existing_indexes, $schema_indexes, renames, rename_cols_by_table)
 
-  to_run += calc_fk_changes($foreign_keys, Set.new($schema_tables.keys) + Set.new(existing_tables.keys))
+  to_run += calc_fk_changes($foreign_keys, Set.new(existing_tables.keys), renames)
 
   to_run += calc_perms_changes($schema_tables, noop) unless $check_perms_for.empty?
 
@@ -169,6 +169,11 @@ end
 def calc_index_changes(existing_indexes, schema_indexes, table_renames, rename_cols_by_table)
   # rename_cols_by_table is by the new table name
   existing_indexes = Set.new existing_indexes
+  existing_indexes.each do |index|
+    if table_renames[index[:table]].present?
+      index[:table] = table_renames[index[:table]]
+    end
+  end
   schema_indexes = Set.new schema_indexes
   
   add_indexes = schema_indexes - existing_indexes
@@ -201,10 +206,10 @@ def calc_index_changes(existing_indexes, schema_indexes, table_renames, rename_c
   return to_run
 end
 
-def calc_fk_changes(foreign_keys, tables)
+def calc_fk_changes(foreign_keys, existing_tables, renames)
   existing_foreign_keys = []
-  unless tables.empty?
-    tables_sql = (tables.map {|tn| ActiveRecord::Base.sanitize(tn)}).join(',')
+  unless existing_tables.empty?
+    existing_tables_sql = (existing_tables.map {|tn| ActiveRecord::Base.sanitize(tn)}).join(',')
     sql = %{
       SELECT
           tc.constraint_name, tc.table_name, kcu.column_name, 
@@ -217,12 +222,16 @@ def calc_fk_changes(foreign_keys, tables)
           JOIN information_schema.constraint_column_usage AS ccu
             ON ccu.constraint_name = tc.constraint_name
       WHERE constraint_type = 'FOREIGN KEY'
-        AND tc.table_name in (#{tables_sql});
+        AND tc.table_name in (#{existing_tables_sql});
     }
     build_pg_connection.exec(sql).each do |row|
+      from_table = row['table_name']
+      from_table = renames[from_table] if renames[from_table].present?
+      to_table = row['foreign_table_name']
+      to_table = renames[to_table] if renames[to_table].present?
       existing_foreign_keys << HashWithIndifferentAccess.new({
-        :from_table => row['table_name'],
-        :to_table => row['foreign_table_name'],
+        :from_table => from_table,
+        :to_table => to_table,
         :column => row['column_name'],
         :primary_key => row['foreign_column_name'],
         :name => row['constraint_name'],
@@ -234,6 +243,26 @@ def calc_fk_changes(foreign_keys, tables)
   foreign_keys = Set.new foreign_keys
   add_fks = foreign_keys - existing_foreign_keys
   delete_fks = existing_foreign_keys - foreign_keys
+  
+  rename_fks = []
+  delete_fks.each do |delete_fk|
+    dfk = delete_fk.clone
+    dfk.delete(:name)
+    add_fks.each do |add_fk|
+      afk = add_fk.clone
+      afk.delete(:name)
+      if afk==dfk
+        delete_fks.delete delete_fk
+        add_fks.delete add_fk
+        rename_fks << {
+          :table => delete_fk[:from_table],
+          :from_name => delete_fk[:name],
+          :to_name => add_fk[:name]
+        }
+        # ALTER TABLE name RENAME CONSTRAINT "error_test_id_fkey" TO "the_new_name_fkey";
+      end
+    end
+  end
 
   to_run = []
   delete_fks.each do |fk|
@@ -241,6 +270,9 @@ def calc_fk_changes(foreign_keys, tables)
   end
   add_fks.each do |fk|
     to_run << "ALTER TABLE #{escape_table(fk[:from_table])} ADD CONSTRAINT #{escape_table(fk[:name])} FOREIGN KEY (#{escape_table(fk[:column])}) REFERENCES #{escape_table(fk[:to_table])} (#{escape_table(fk[:primary_key])}) MATCH FULL"
+  end
+  rename_fks.each do |fk|
+    to_run << "ALTER TABLE #{escape_table(fk[:table])} RENAME CONSTRAINT #{escape_table(fk[:from_name])} TO #{escape_table(fk[:to_name])}"
   end
 
   if !to_run.empty?
@@ -499,12 +531,11 @@ def gen_pg_adapter()
 end
 
 def sql_renames(renames)
-  to_run = []
   pg_a = gen_pg_adapter()
   renames.each do |k,v|
     pg_a.rename_table(k, v)
-    to_run += $tmp_to_run
   end
+  to_run = $tmp_to_run.clone
   if !to_run.empty?
     to_run.unshift("\n-- rename tables")
   end
@@ -539,7 +570,7 @@ def sql_adds(tables)
       $tmp_to_run << "REVOKE ALL ON #{(tables.map {|t| escape_table(t)}).join(',')} FROM #{$check_perms_for.to_a.join(',')}"
     end
   end
-  return $tmp_to_run
+  return $tmp_to_run.clone
 end
 
 def can_convert(type1, type2)
