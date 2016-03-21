@@ -560,6 +560,7 @@ def sql_adds(tables)
     tbl = $schema_tables[tn]
     a.create_table tbl.name, :force => true do |t|
       tbl.columns.each do |c|
+        next if c.type=='integer' && c.name=='id'
         t.send(c.type.to_sym, *[c.name, c.opts])
       end
     end
