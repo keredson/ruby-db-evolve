@@ -83,6 +83,8 @@ def do_evolve(noop, yes, nowait)
   existing_tables, existing_indexes = load_existing_tables()
 
   require_relative 'db_mock'
+  
+  ActiveRecord::ConnectionAdapters::PostgreSQLAdapter.existing_tables = existing_tables
 
   require Rails.root + 'db/schema'
 
@@ -663,8 +665,11 @@ def calc_column_changes(tbl, existing_cols, schema_cols)
     scale_changed = (sc.type=="decimal" and sc_scale!=ec.scale)
     if type_changed or limit_changed or precision_changed or scale_changed
       pg_a.change_column(tbl, sc.name, sc.type.to_sym, sc.opts)
+      while $tmp_to_run.length > 1
+        $tmp_to_run.pop # in later versions of rails change_column runs extra crap we don't want
+      end
     end
-    if normalize_default(ec.default) != sc.opts[:default]
+    if normalize_default(ec.default, type: ec.type) != normalize_default(sc.opts[:default], type: sc.type)
       pg_a.change_column_default(tbl, sc.name, sc.opts[:default])
     end
     sc_null = sc.opts.has_key?(:null) ? sc.opts[:null] : true
@@ -684,14 +689,26 @@ def calc_column_changes(tbl, existing_cols, schema_cols)
   return to_run, rename_cols
 end
 
-def normalize_default default
-  default = default.to_s if default.is_a? Symbol
+def normalize_default default, type: nil
+  type = type.to_s unless type==nil
+  unless default==nil
+    default = default.to_i if type=='integer'
+    default = default.truish? if type=='boolean' && (default.is_a?(String) || default.is_a?(Symbol))
+    default = default.to_s if default.is_a? Symbol
+  end
   if (default.respond_to?(:infinite?) && default.infinite?) || default.is_a?(String) && (default.downcase == 'infinity' || default.downcase == '-infinity')
     default = default.to_s.downcase
   end
   return default
 end
 
+class String
+  def truish?
+    return true if self == true || self =~ (/(true|t|yes|y|1)$/i)
+    return false if self == false || self.blank? || self =~ (/(false|f|no|n|0)$/i)
+    raise ArgumentError.new("i don't know... is \"#{self}\" truish?")
+  end
+end
 
 $tmp_to_run = []
 

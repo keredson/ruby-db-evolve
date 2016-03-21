@@ -15,8 +15,8 @@ for i in $( ls schemas/*.rb -1v ); do
     echo " Running: $i"
     echo "----------------------------------------------"
     cp $i db/schema.rb
-    rake db:evolve[yes,nowait]
-    NOOP=$(rake db:evolve[noop])
+    bundle exec rake db:evolve[yes,nowait]
+    NOOP=$(bundle exec rake db:evolve[noop])
     if [ -n "$NOOP" ]; then
       echo "Failed NOOP: $i"
       echo $NOOP
