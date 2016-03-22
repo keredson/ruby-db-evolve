@@ -1,0 +1,11 @@
+development:
+  adapter: postgresql
+  database: db_evolve_test
+  username: db_evolve_test
+  password: password
+  host: localhost
+  
+development_dbevolve:
+  adapter: postgresql
+  database: db_evolve_test
+  
