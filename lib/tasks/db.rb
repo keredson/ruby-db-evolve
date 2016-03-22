@@ -81,10 +81,12 @@ end
 
 def do_evolve(noop, yes, nowait)
   existing_tables, existing_indexes = load_existing_tables()
+  server_version = load_server_version()
 
   require_relative 'db_mock'
   
   ActiveRecord::ConnectionAdapters::PostgreSQLAdapter.existing_tables = existing_tables
+  ActiveRecord::ConnectionAdapters::PostgreSQLAdapter.server_version = server_version
 
   require Rails.root + 'db/schema'
 
@@ -333,6 +335,10 @@ def load_existing_tables()
   return existing_tables, existing_indexes
 end
 
+def load_server_version()
+  server_version = build_pg_connection.server_version rescue nil
+  return server_version
+end
 
 
 
@@ -526,7 +532,7 @@ end
 def gen_pg_adapter()
   $tmp_to_run = []
   a = ActiveRecord::ConnectionAdapters::PostgreSQLAdapter.allocate
-  ActiveRecord::ConnectionAdapters::AbstractAdapter.instance_method(:initialize).bind(a).call ActiveRecord::Base.connection
+  ActiveRecord::ConnectionAdapters::AbstractAdapter.instance_method(:initialize).bind(a).call build_pg_connection
   return a
 end
 

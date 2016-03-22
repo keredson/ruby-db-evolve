@@ -9,18 +9,25 @@ module ActiveRecord
       def values
         return []
       end
+      def first
+        return {}
+      end
       def clear
         return nil
       end
     end
     class PostgreSQLAdapter
       def execute(sql, name = nil)
-        $tmp_to_run.append sql
+        $tmp_to_run.append sql unless skip? sql
         return FakeResult.new
       end
       def async_exec(sql, params_result_format)
-        $tmp_to_run.append sql
+        $tmp_to_run.append sql unless skip? sql
         return FakeResult.new
+      end
+      def skip? sql
+        return true if sql.end_with?("'::regtype::oid") and sql.start_with?("SELECT '")
+        return false 
       end
       def table_exists?(name)
         false
@@ -30,6 +37,15 @@ module ActiveRecord
       end
       def self.existing_tables= existing_tables
         @@existing_tables = existing_tables
+      end
+      def self.server_version= server_version
+        @@server_version = server_version 
+      end
+      def server_version
+        return @@server_version
+      end
+      def initialize_type_map m
+        # do nothing
       end
       def clear_cache!
       end

@@ -4,7 +4,7 @@ gem 'rails', '3.2.21'
 
 gem 'pg'
 
-gem 'db-evolve'
+gem 'db-evolve', path: "../.."
 
 # Bundle edge Rails instead:
 # gem 'rails', :git => 'git://github.com/rails/rails.git'
