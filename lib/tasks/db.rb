@@ -328,7 +328,7 @@ def load_existing_tables()
     columns = connection.columns(tbl)
     existing_tables[tbl] = columns
     connection.indexes(tbl).each do |i|
-      index = {:table => i.table, :name => i.name, :columns => i.columns, :unique => i.unique}
+      index = {:table => i.table, :name => i.name, :columns => i.columns, :unique => i.unique, using: i.using}
       existing_indexes.append(index)
     end
   end
@@ -448,6 +448,8 @@ def add_index(table, columns, opts)
   if !opts.has_key? :unique
     opts[:unique] = false
   end
+  # this is the default index type for mysql and postgres
+  opts[:using] = :btree unless opts.has_key?(:using)
   $schema_indexes.append(opts)
 end
 
