@@ -19,15 +19,15 @@ namespace :db do
 
   desc "Diff your database against your schema.rb and offer SQL to bring your database up to date."
   task :evolve, [:arg1,:arg2] => :environment do |t, args|
-  
-    argv = [ args[:arg1], args[:arg2] ] 
+
+    argv = [ args[:arg1], args[:arg2] ]
     noop = argv.include? "noop"
     nowait = argv.include? "nowait"
     yes = argv.include? "yes"
-  
+
     # confirm our shim is in place before we load schema.rb
     # lest we accidentally drop and reload their database!
-    ActiveRecord::Schema.iloaded 
+    ActiveRecord::Schema.iloaded
 
     do_evolve(noop, yes, nowait)
 
@@ -84,7 +84,7 @@ def do_evolve(noop, yes, nowait)
   server_version = load_server_version()
 
   require_relative 'db_mock'
-  
+
   ActiveRecord::ConnectionAdapters::PostgreSQLAdapter.existing_tables = existing_tables
   ActiveRecord::ConnectionAdapters::PostgreSQLAdapter.server_version = server_version
 
@@ -106,7 +106,7 @@ def do_evolve(noop, yes, nowait)
     to_run += commands
     rename_cols_by_table[ntn] = rename_cols
   end
-  
+
   to_run += calc_index_changes(existing_indexes, $schema_indexes, renames, rename_cols_by_table)
 
   to_run += calc_fk_changes($foreign_keys, Set.new(existing_tables.keys), renames)
@@ -116,7 +116,7 @@ def do_evolve(noop, yes, nowait)
   to_run += sql_drops(deletes)
 
   # prompt and execute
-  
+
   if to_run.empty?
     if !noop
       puts "\nYour database is up to date!"
@@ -141,7 +141,7 @@ def do_evolve(noop, yes, nowait)
       v = "*" * v.length if k.present? && k.to_s=='password'
       puts "\t#{k} => #{v}"
     end
-    
+
     if !yes
       print "Run this SQL? (type yes or no) "
     end
@@ -179,33 +179,31 @@ def calc_index_changes(existing_indexes, schema_indexes, table_renames, rename_c
     end
   end
   schema_indexes = Set.new schema_indexes
-  
+
   add_indexes = schema_indexes - existing_indexes
   delete_indexes = existing_indexes - schema_indexes
 
-  $tmp_to_run = []  
+  $tmp_to_run = []
 
   connection = ActiveRecord::Base.connection
+
+  delete_indexes.each do |index|
+    table = index.delete(:table)
+    name = index[:name]
+    $tmp_to_run << "DROP INDEX IF EXISTS #{escape_table(name)}"
+  end
 
   add_indexes.each do |index|
     table = index.delete(:table)
     columns = index.delete(:columns)
     connection.add_index table, columns, index
   end
-  
-  to_run = $tmp_to_run
 
-  delete_indexes.each do |index|
-    table = index.delete(:table)
-    name = index[:name]
-    to_run << "DROP INDEX IF EXISTS #{escape_table(name)}"
+  if !$tmp_to_run.empty?
+    $tmp_to_run.unshift("\n-- update indexes")
   end
 
-  if !to_run.empty?
-    to_run.unshift("\n-- update indexes")
-  end
-  
-  return to_run
+  return $tmp_to_run
 end
 
 def calc_fk_changes(foreign_keys, existing_tables, renames)
@@ -214,11 +212,11 @@ def calc_fk_changes(foreign_keys, existing_tables, renames)
     existing_tables_sql = (existing_tables.map {|tn| ActiveRecord::Base.sanitize(tn)}).join(',')
     sql = %{
       SELECT
-          tc.constraint_name, tc.table_name, kcu.column_name, 
+          tc.constraint_name, tc.table_name, kcu.column_name,
           ccu.table_name AS foreign_table_name,
-          ccu.column_name AS foreign_column_name 
-      FROM 
-          information_schema.table_constraints AS tc 
+          ccu.column_name AS foreign_column_name
+      FROM
+          information_schema.table_constraints AS tc
           JOIN information_schema.key_column_usage AS kcu
             ON tc.constraint_name = kcu.constraint_name
           JOIN information_schema.constraint_column_usage AS ccu
@@ -245,7 +243,7 @@ def calc_fk_changes(foreign_keys, existing_tables, renames)
   foreign_keys = Set.new foreign_keys
   add_fks = foreign_keys - existing_foreign_keys
   delete_fks = existing_foreign_keys - foreign_keys
-  
+
   rename_fks = []
   delete_fks.each do |delete_fk|
     dfk = delete_fk.clone
@@ -311,7 +309,7 @@ def calc_perms_changes schema_tables, noop
   if !to_run.empty?
     to_run.unshift("\n-- update permissions")
   end
-  
+
   return to_run
 end
 
@@ -328,7 +326,7 @@ def load_existing_tables()
     columns = connection.columns(tbl)
     existing_tables[tbl] = columns
     connection.indexes(tbl).each do |i|
-      index = {:table => i.table, :name => i.name, :columns => i.columns, :unique => i.unique}
+      index = {:table => i.table, :name => i.name, :columns => i.columns, :unique => i.unique, using: i.using}
       existing_indexes.append(index)
     end
   end
@@ -344,11 +342,11 @@ end
 
 class Table
   attr_accessor :name, :opts, :id, :columns, :perms_for_user
-  
+
   def initialize()
     @columns = []
   end
-  
+
   def grant *args, to: nil
     to = $db_username if to.nil?
     $check_perms_for.add(to)
@@ -356,7 +354,7 @@ class Table
       @perms_for_user[to] |= check_perm(arg)
     end
   end
-  
+
   def revoke *args, from: nil
     from = $db_username if from.nil?
     $check_perms_for.add(from)
@@ -364,7 +362,7 @@ class Table
       @perms_for_user[from] -= check_perm(arg)
     end
   end
-  
+
   def method_missing(method_sym, *arguments, &block)
     c = Column.new
     c.type = method_sym.to_s
@@ -394,8 +392,8 @@ class Table
       c.opts = {}
     end
     @columns.append c
-  end 
-   
+  end
+
 end
 
 class Column
@@ -448,6 +446,8 @@ def add_index(table, columns, opts)
   if !opts.has_key? :unique
     opts[:unique] = false
   end
+  # this is the default index type for mysql and postgres
+  opts[:using] = :btree unless opts.has_key?(:using)
   $schema_indexes.append(opts)
 end
 
@@ -623,7 +623,7 @@ def calc_column_changes(tbl, existing_cols, schema_cols)
       end
     end
   end
-  
+
   to_run = []
 
   pg_a = gen_pg_adapter()
@@ -636,7 +636,7 @@ def calc_column_changes(tbl, existing_cols, schema_cols)
     end
     to_run += $tmp_to_run
   end
-  
+
   $tmp_to_run = []
   rename_cols.each do |ecn, scn|
     pg_a.rename_column(tbl, ecn, scn)
@@ -645,7 +645,7 @@ def calc_column_changes(tbl, existing_cols, schema_cols)
   delete_cols.each do |cn|
     to_run.append("ALTER TABLE #{escape_table(tbl)} DROP COLUMN #{escape_table(cn)}")
   end
-  
+
   same_names = existing_col_names - delete_cols
   same_names.each do |ecn|
     $tmp_to_run = []
@@ -692,7 +692,7 @@ def calc_column_changes(tbl, existing_cols, schema_cols)
   if !to_run.empty?
     to_run.unshift("\n-- column changes for table #{tbl}")
   end
-  
+
   return to_run, rename_cols
 end
 
@@ -718,4 +718,3 @@ class String
 end
 
 $tmp_to_run = []
-
